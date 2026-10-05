@@ -4,13 +4,33 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type FormEvent,
 } from 'react'
 import './App.css'
 import type { Song } from './models/Song'
+import type { SessionUser } from './models/User'
+import { AuthService } from './services/AuthService'
 import { AudioService } from './services/AudioService'
 import { DoublyLinkedList } from './structures/DoublyLinkedList'
 
 type AddMode = 'first' | 'last' | 'position'
+type AuthMode = 'login' | 'register'
+type RepeatMode = 'off' | 'all' | 'one'
+type PlayerIconName = 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'volume' | 'muted'
+
+type AuthFormState = {
+  username: string
+  email: string
+  password: string
+  confirmPassword: string
+}
+
+const emptyAuthForm: AuthFormState = {
+  username: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+}
 
 const formatDuration = (seconds: number): string => {
   if (!Number.isFinite(seconds) || seconds <= 0) {
@@ -22,6 +42,25 @@ const formatDuration = (seconds: number): string => {
   const remainingSeconds = totalSeconds % 60
 
   return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+}
+
+const PlayerIcon = ({ name }: { name: PlayerIconName }) => {
+  const paths: Record<PlayerIconName, string[]> = {
+    shuffle: ['M18 14l4 4-4 4', 'M18 2l4 4-4 4', 'M2 18h2.5a5 5 0 0 0 4-2l7-10a5 5 0 0 1 4-2H22', 'M2 6h2.5a5 5 0 0 1 4 2l1 1', 'M14 15l1 1a5 5 0 0 0 4 2H22'],
+    previous: ['M19 20 9 12l10-8v16z', 'M5 19V5'],
+    play: ['m7 4 13 8-13 8V4z'],
+    pause: ['M8 5v14', 'M16 5v14'],
+    next: ['m5 4 10 8-10 8V4z', 'M19 5v14'],
+    repeat: ['M17 2l4 4-4 4', 'M3 11V9a3 3 0 0 1 3-3h15', 'M7 22l-4-4 4-4', 'M21 13v2a3 3 0 0 1-3 3H3'],
+    volume: ['M11 5 6 9H2v6h4l5 4V5z', 'M15.5 8.5a5 5 0 0 1 0 7', 'M19 5a10 10 0 0 1 0 14'],
+    muted: ['M11 5 6 9H2v6h4l5 4V5z', 'm22 9-6 6', 'm16 9 6 6'],
+  }
+
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {paths[name].map((path) => <path key={path} d={path} />)}
+    </svg>
+  )
 }
 
 const createSongFromFile = (file: File, index: number): Song => {
@@ -57,9 +96,34 @@ function App() {
   const [feedback, setFeedback] = useState('Ready to load local songs.')
   const [volume, setVolume] = useState(0.7)
   const [muted, setMuted] = useState(false)
+  const [shuffleEnabled, setShuffleEnabled] = useState(false)
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>('off')
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [totalDuration, setTotalDuration] = useState(0)
+
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(() => AuthService.getSessionUser())
+  const [authMode, setAuthMode] = useState<AuthMode>('login')
+  const [authForm, setAuthForm] = useState<AuthFormState>(emptyAuthForm)
+  const [authMessage, setAuthMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string }>({
+    type: 'info',
+    text: 'Inicia sesión para acceder al reproductor.',
+  })
+  const [authLoading, setAuthLoading] = useState(false)
+
+  useEffect(() => {
+    const currentPath = window.location.pathname
+    if (sessionUser) {
+      if (currentPath !== '/player') {
+        window.history.pushState({}, '', '/player')
+      }
+      return
+    }
+
+    if (currentPath !== '/') {
+      window.history.pushState({}, '', '/')
+    }
+  }, [sessionUser])
 
   const audioServiceRef = useRef<AudioService | null>(null)
 
@@ -143,9 +207,32 @@ function App() {
   }
 
   const handleNext = async () => {
+    if (shuffleEnabled) {
+      const alternatives = songs.filter((song) => song.id !== currentSong?.id)
+      const randomSong = alternatives[Math.floor(Math.random() * alternatives.length)]
+
+      if (randomSong) {
+        await playSong(randomSong)
+        return
+      }
+
+      if (repeatMode === 'all' && currentSong) {
+        await playSong(currentSong)
+        return
+      }
+
+      setFeedback('There are no other songs to shuffle to.')
+      return
+    }
+
     const nextNode = list.next()
 
     if (!nextNode?.song) {
+      if (repeatMode === 'all' && songs[0]) {
+        await playSong(songs[0])
+        return
+      }
+
       setFeedback('You are already at the last song.')
       return
     }
@@ -235,6 +322,58 @@ function App() {
     setCurrentTime(nextTime)
   }
 
+  const handleAuthChange = (field: keyof AuthFormState, value: string) => {
+    setAuthForm((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  const handleRegisterSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    setAuthLoading(true)
+    const result = await AuthService.registerUser(authForm)
+    setAuthLoading(false)
+
+    if (!result.success) {
+      setAuthMessage({ type: 'error', text: result.message })
+      return
+    }
+
+    setAuthMessage({ type: 'success', text: result.message })
+    setAuthForm(emptyAuthForm)
+    setAuthMode('login')
+  }
+
+  const handleLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    setAuthLoading(true)
+    const result = await AuthService.loginUser({
+      email: authForm.email,
+      password: authForm.password,
+    })
+    setAuthLoading(false)
+
+    if (!result.success || !result.user) {
+      setAuthMessage({ type: 'error', text: result.message })
+      return
+    }
+
+    setSessionUser(result.user)
+    setAuthMessage({ type: 'success', text: result.message })
+    setAuthForm(emptyAuthForm)
+  }
+
+  const handleLogout = () => {
+    AuthService.logout()
+    setSessionUser(null)
+    setAuthMode('login')
+    setAuthForm(emptyAuthForm)
+    setAuthMessage({ type: 'info', text: 'Sesión cerrada. Inicia sesión para continuar.' })
+  }
+
   useEffect(() => {
     audioService.setVolume(volume)
     audioService.setMuted(muted)
@@ -253,18 +392,159 @@ function App() {
     })
 
     audioService.onEnded(() => {
+      if (repeatMode === 'one' && currentSong) {
+        void playSong(currentSong)
+        return
+      }
+
+      if (shuffleEnabled) {
+        const alternatives = songs.filter((song) => song.id !== currentSong?.id)
+        const randomSong = alternatives[Math.floor(Math.random() * alternatives.length)]
+
+        if (randomSong) {
+          void playSong(randomSong)
+          return
+        }
+
+        if (repeatMode === 'all' && currentSong) {
+          void playSong(currentSong)
+          return
+        }
+      }
+
       const nextNode = list.next()
-      refreshList()
 
       if (nextNode?.song) {
+        refreshList()
         void playSong(nextNode.song)
+        return
+      }
+
+      if (repeatMode === 'all' && songs[0]) {
+        void playSong(songs[0])
         return
       }
 
       setIsPlaying(false)
       setFeedback('The playlist ended.')
     })
-  }, [audioService, list, playlistState.version])
+  }, [audioService, currentSong, list, playlistState.version, repeatMode, shuffleEnabled, songs])
+
+  if (!sessionUser) {
+    const isRegisterMode = authMode === 'register'
+
+    return (
+      <div className="auth-shell">
+        <div className="auth-card panel">
+          <div className="auth-brand">
+            <p className="eyebrow">Music Player powered by Doubly Linked List</p>
+            <h1>CRAZY MUSIC</h1>
+          </div>
+
+          <div className="auth-toggle">
+            <button
+              type="button"
+              className={isRegisterMode ? 'toggle-button' : 'toggle-button active'}
+              onClick={() => setAuthMode('login')}
+            >
+              Iniciar sesión
+            </button>
+            <button
+              type="button"
+              className={isRegisterMode ? 'toggle-button active' : 'toggle-button'}
+              onClick={() => setAuthMode('register')}
+            >
+              Registrarse
+            </button>
+          </div>
+
+          {authMessage.text ? (
+            <div className={`auth-message ${authMessage.type}`}>{authMessage.text}</div>
+          ) : null}
+
+          {isRegisterMode ? (
+            <form className="auth-form" onSubmit={handleRegisterSubmit}>
+              <label>
+                <span>Nombre de usuario</span>
+                <input
+                  type="text"
+                  value={authForm.username}
+                  onChange={(event) => handleAuthChange('username', event.target.value)}
+                  placeholder="Tu nombre de usuario"
+                />
+              </label>
+
+              <label>
+                <span>Correo electrónico</span>
+                <input
+                  type="text"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  value={authForm.email}
+                  onChange={(event) => handleAuthChange('email', event.target.value)}
+                  placeholder="tu@correo.com"
+                />
+              </label>
+
+              <label>
+                <span>Contraseña</span>
+                <input
+                  type="password"
+                  value={authForm.password}
+                  onChange={(event) => handleAuthChange('password', event.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                />
+              </label>
+
+              <label>
+                <span>Confirmar contraseña</span>
+                <input
+                  type="password"
+                  value={authForm.confirmPassword}
+                  onChange={(event) => handleAuthChange('confirmPassword', event.target.value)}
+                  placeholder="Repite tu contraseña"
+                />
+              </label>
+
+              <button type="submit" className="primary-button auth-submit" disabled={authLoading}>
+                {authLoading ? 'Registrando...' : 'Registrarse'}
+              </button>
+            </form>
+          ) : (
+            <form className="auth-form" onSubmit={handleLoginSubmit}>
+              <label>
+                <span>Correo electrónico</span>
+                <input
+                  type="text"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  value={authForm.email}
+                  onChange={(event) => handleAuthChange('email', event.target.value)}
+                  placeholder="tu@correo.com"
+                />
+              </label>
+
+              <label>
+                <span>Contraseña</span>
+                <input
+                  type="password"
+                  value={authForm.password}
+                  onChange={(event) => handleAuthChange('password', event.target.value)}
+                  placeholder="Tu contraseña"
+                />
+              </label>
+
+              <button type="submit" className="primary-button auth-submit" disabled={authLoading}>
+                {authLoading ? 'Ingresando...' : 'Iniciar sesión'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   const currentPosition = list.getCurrentPosition()
   const firstSong = list.head?.song ?? null
@@ -276,6 +556,13 @@ function App() {
         <div>
           <p className="eyebrow">Music Player powered by Doubly Linked List</p>
           <h1>CRAZY MUSIC</h1>
+        </div>
+
+        <div className="user-session-box">
+          <span>Usuario: {sessionUser.username}</span>
+          <button type="button" className="ghost-button" onClick={handleLogout}>
+            Cerrar sesión
+          </button>
         </div>
       </header>
 
@@ -391,46 +678,85 @@ function App() {
             <p className="artist-name">{currentSong?.artist ?? 'Unknown Artist'}</p>
 
             <div className="player-controls">
-              <button type="button" className="control-button" onClick={() => void handlePrevious()}>
-                Previous
+              <button
+                type="button"
+                className={`icon-control ${shuffleEnabled ? 'selected' : ''}`}
+                onClick={() => setShuffleEnabled((enabled) => !enabled)}
+                aria-label="Shuffle"
+                aria-pressed={shuffleEnabled}
+                title="Shuffle"
+              >
+                <PlayerIcon name="shuffle" />
               </button>
-              <button type="button" className="control-button primary" onClick={() => void handlePlayPause()}>
-                {isPlaying ? 'Pause' : 'Play'}
+              <button type="button" className="icon-control" onClick={() => void handlePrevious()} aria-label="Previous" title="Previous">
+                <PlayerIcon name="previous" />
               </button>
-              <button type="button" className="control-button" onClick={() => void handleNext()}>
-                Next
+              <button
+                type="button"
+                className="play-control"
+                onClick={() => void handlePlayPause()}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+                title={isPlaying ? 'Pause' : 'Play'}
+              >
+                <PlayerIcon name={isPlaying ? 'pause' : 'play'} />
+              </button>
+              <button type="button" className="icon-control" onClick={() => void handleNext()} aria-label="Next" title="Next">
+                <PlayerIcon name="next" />
+              </button>
+              <button
+                type="button"
+                className={`icon-control ${repeatMode !== 'off' ? 'selected' : ''}`}
+                onClick={() => setRepeatMode((mode) => (mode === 'off' ? 'all' : mode === 'all' ? 'one' : 'off'))}
+                aria-label={`Repeat ${repeatMode === 'off' ? 'off' : repeatMode === 'all' ? 'playlist' : 'current song'}`}
+                aria-pressed={repeatMode !== 'off'}
+                title={`Repeat: ${repeatMode === 'off' ? 'off' : repeatMode === 'all' ? 'playlist' : 'current song'}`}
+              >
+                <PlayerIcon name="repeat" />
+                {repeatMode === 'one' ? <span className="repeat-one-mark">1</span> : null}
               </button>
             </div>
 
             <div className="progress-wrap">
+              <div className="time-row">
+                <span>{formatDuration(currentTime)}</span>
+                <span>{formatDuration(totalDuration)}</span>
+              </div>
               <input
+                aria-label="Seek through current song"
                 type="range"
                 min="0"
                 max={Math.max(totalDuration, 0)}
                 step="0.1"
                 value={Math.min(currentTime, Math.max(totalDuration, 0))}
+                style={{ background: `linear-gradient(to right, #1c4bd8 ${totalDuration > 0 ? Math.min(100, (currentTime / totalDuration) * 100) : 0}%, #dfe5f0 0)` }}
                 onChange={handleSeek}
               />
-              <div className="time-row">
-                <span>{formatDuration(currentTime)}</span>
-                <span>{formatDuration(totalDuration)}</span>
-              </div>
             </div>
 
             <div className="volume-wrap">
-              <label htmlFor="volume-control">Volume</label>
-              <input
-                id="volume-control"
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={volume}
-                onChange={(event) => setVolume(Number(event.target.value))}
-              />
-              <button type="button" className="mute-toggle" onClick={() => setMuted((state) => !state)}>
-                {muted ? 'Unmute' : 'Mute'}
-              </button>
+              <label className="visually-hidden" htmlFor="volume-control">Volume</label>
+              <div className="volume-control">
+                <button
+                  type="button"
+                  className="volume-toggle"
+                  onClick={() => setMuted((state) => !state)}
+                  aria-label={muted ? 'Unmute volume' : 'Mute volume'}
+                  title={muted ? 'Unmute volume' : 'Mute volume'}
+                >
+                  <PlayerIcon name={muted ? 'muted' : 'volume'} />
+                </button>
+                <input
+                  id="volume-control"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={volume}
+                  style={{ background: `linear-gradient(to right, #1c4bd8 ${volume * 100}%, #dfe5f0 0)` }}
+                  onChange={(event) => setVolume(Number(event.target.value))}
+                  aria-label="Volume"
+                />
+              </div>
             </div>
           </div>
 
@@ -466,37 +792,6 @@ function App() {
         </aside>
       </main>
 
-      <section className="panel structure-panel">
-        <h2>Data Structure</h2>
-        <div className="structure-summary">
-          <span className="structure-label">HEAD</span>
-          {songs.length > 0 ? (
-            <>
-              {songs.map((song, index) => (
-                <div key={song.id} className="structure-node-group">
-                  <div className={`structure-node ${song.id === currentSong?.id ? 'current' : ''}`}>
-                    <span className="node-name">{song.title}</span>
-                    <small>PREVIOUS ←</small>
-                    <small>NEXT →</small>
-                  </div>
-                  {index < songs.length - 1 ? <span className="structure-arrow">⇄</span> : null}
-                </div>
-              ))}
-              <span className="structure-label">TAIL</span>
-            </>
-          ) : (
-            <span className="empty-state-inline">Empty list</span>
-          )}
-        </div>
-
-        {currentSong ? (
-          <div className="current-indicator">
-            <span className="indicator-label">CURRENT</span>
-            <span className="indicator-arrow">↑</span>
-            <span>{currentSong.title}</span>
-          </div>
-        ) : null}
-      </section>
     </div>
   )
 }
