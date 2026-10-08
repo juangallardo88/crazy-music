@@ -64,6 +64,25 @@ describe('DoublyLinkedList', () => {
     expect(sorted.get(2)?.song).toBe(songC)
   })
 
+  it('inserts songs at the beginning, middle, and end while preserving order', () => {
+    const list = new DoublyLinkedList<Song>()
+    const first = makeSong('first', 'First Song')
+    const middle = makeSong('middle', 'Middle Song')
+    const last = makeSong('last', 'Last Song')
+    const end = makeSong('end', 'End Song')
+
+    list.addLast(first)
+    list.addFirst(middle)
+    list.insertAt(last, 1)
+    list.insertAt(end, list.getSize())
+
+    expect(list.toArray().map((song) => song.id)).toEqual(['middle', 'last', 'first', 'end'])
+    expect(list.head?.song).toBe(middle)
+    expect(list.tail?.song).toBe(end)
+    expect(list.getCurrentPosition()).toBe(0)
+    expect(list.get(1)?.song).toBe(last)
+  })
+
   it('handles edge cases across empty and single-element operations', () => {
     const list = new DoublyLinkedList<Song>()
     const onlySong = makeSong('solo', 'Only Song')

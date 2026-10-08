@@ -437,7 +437,7 @@ function App() {
       <div className="auth-shell">
         <div className="auth-card panel">
           <div className="auth-brand">
-            <p className="eyebrow">Music Player powered by Doubly Linked List</p>
+            <div className="brand-mark" aria-hidden="true">CM</div>
             <h1>CRAZY MUSIC</h1>
           </div>
 
@@ -477,10 +477,11 @@ function App() {
               <label>
                 <span>Correo electrónico</span>
                 <input
-                  type="text"
+                  type="email"
                   inputMode="email"
                   autoComplete="email"
                   autoCapitalize="none"
+                  spellCheck={false}
                   value={authForm.email}
                   onChange={(event) => handleAuthChange('email', event.target.value)}
                   placeholder="tu@correo.com"
@@ -517,9 +518,10 @@ function App() {
                 <span>Correo electrónico</span>
                 <input
                   type="text"
-                  inputMode="email"
+                  inputMode="text"
                   autoComplete="email"
                   autoCapitalize="none"
+                  spellCheck={false}
                   value={authForm.email}
                   onChange={(event) => handleAuthChange('email', event.target.value)}
                   placeholder="tu@correo.com"
@@ -553,14 +555,24 @@ function App() {
   return (
     <div className="app-shell">
       <header className="app-header panel">
-        <div>
-          <p className="eyebrow">Music Player powered by Doubly Linked List</p>
-          <h1>CRAZY MUSIC</h1>
+        <div className="brand-block">
+          <div className="brand-mark" aria-hidden="true">CM</div>
+          <div>
+            <h1>CRAZY MUSIC</h1>
+          </div>
         </div>
 
         <div className="user-session-box">
-          <span>Usuario: {sessionUser.username}</span>
-          <button type="button" className="ghost-button" onClick={handleLogout}>
+          <div className="user-profile" aria-label={`Usuario conectado: ${sessionUser.username}`}>
+            <span className="user-avatar" aria-hidden="true">
+              {sessionUser.username.charAt(0).toUpperCase()}
+            </span>
+            <div>
+              <small>Conectado</small>
+              <span>{sessionUser.username}</span>
+            </div>
+          </div>
+          <button type="button" className="logout-button" onClick={handleLogout}>
             Cerrar sesión
           </button>
         </div>
@@ -568,31 +580,35 @@ function App() {
 
       <main className="app-layout">
         <section className="primary-column">
-          <div className="panel section-block">
-            <div className="section-header">
-              <h2>Playlist</h2>
-              <div className="search-box">
-                <label htmlFor="song-search">Search</label>
-                <input
-                  id="song-search"
-                  type="search"
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search by title or artist"
-                />
-              </div>
+          <div className="panel section-block library-panel">
+            <div className="search-box">
+              <label htmlFor="song-search">Buscar</label>
+              <input
+                id="song-search"
+                type="search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Buscar por título o artista"
+              />
             </div>
 
             <div className="toolbar">
+              <div className="toolbar-copy">
+                <p className="toolbar-kicker">Tu biblioteca</p>
+                <h2>{songs.length} {songs.length === 1 ? 'canción' : 'canciones'}</h2>
+              </div>
               <button type="button" className="primary-button" onClick={handleSortAlphabetically}>
-                Sort A-Z
+                Ordenar A–Z
               </button>
-              <span className="feedback-pill">{feedback}</span>
             </div>
 
             <div className="add-tools">
-              <div className="file-upload-box">
-                <label htmlFor="audio-upload">Add Songs</label>
+              <label className="file-upload-box" htmlFor="audio-upload">
+                <span className="upload-label">Agregar canciones</span>
+                <span className="upload-button">
+                  <span aria-hidden="true">＋</span>
+                  <span>Agregar canciones</span>
+                </span>
                 <input
                   id="audio-upload"
                   type="file"
@@ -600,23 +616,23 @@ function App() {
                   accept="audio/*"
                   onChange={handleAddFiles}
                 />
-              </div>
+              </label>
 
               <div className="insert-box">
-                <label htmlFor="add-mode">Add mode</label>
+                <label htmlFor="add-mode">Agregar</label>
                 <select
                   id="add-mode"
                   value={addMode}
                   onChange={(event) => setAddMode(event.target.value as AddMode)}
                 >
-                  <option value="first">Add First</option>
-                  <option value="last">Add Last</option>
-                  <option value="position">Insert at Position</option>
+                  <option value="first">Al inicio</option>
+                  <option value="last">Al final</option>
+                  <option value="position">En una posición</option>
                 </select>
               </div>
 
               <div className="insert-box">
-                <label htmlFor="position-input">Position</label>
+                <label htmlFor="position-input">Posición</label>
                 <input
                   id="position-input"
                   type="number"
@@ -627,17 +643,19 @@ function App() {
                 />
               </div>
             </div>
+
+            <span className="feedback-pill">{feedback}</span>
           </div>
 
-          <div className="panel section-block">
+          <div className="panel section-block song-list-panel">
             <div className="section-header compact-header">
-              <h2>Song List</h2>
-              <span>{songs.length} songs</span>
+              <h2>Lista de canciones</h2>
+              <span>{filteredSongs.length} resultados</span>
             </div>
 
             <div className="song-list">
               {filteredSongs.length === 0 ? (
-                <div className="empty-state">No songs match the current search.</div>
+                <div className="empty-state">No hay canciones que coincidan con la búsqueda.</div>
               ) : (
                 filteredSongs.map((song, index) => {
                   const isCurrent = currentSong?.id === song.id
@@ -645,22 +663,31 @@ function App() {
 
                   return (
                     <div key={song.id} className={`song-row ${isCurrent ? 'active' : ''}`}>
-                      <div className="song-main">
-                        <span className="position-badge">#{songPosition >= 0 ? songPosition + 1 : index + 1}</span>
-                        <div>
-                          <div className="song-title">{song.title}</div>
-                          <div className="song-meta">
-                            {song.artist} • {formatDuration(song.duration)}
-                          </div>
+                      <button type="button" className="song-row-main" onClick={() => void playSong(song)}>
+                        <div className="song-cover" aria-hidden="true">
+                          {song.coverUrl ? (
+                            <img src={song.coverUrl} alt="" />
+                          ) : (
+                            <span>{song.title.charAt(0).toUpperCase() || 'C'}</span>
+                          )}
                         </div>
-                      </div>
+                        <span className="position-badge">{songPosition >= 0 ? songPosition + 1 : index + 1}</span>
+                        <div className="song-text">
+                          <div className="song-title">{song.title}</div>
+                          <div className="song-meta">{song.artist}</div>
+                        </div>
+                      </button>
 
                       <div className="song-actions">
-                        <button type="button" className="small-button" onClick={() => void playSong(song)}>
-                          {isCurrent && isPlaying ? 'Play' : 'Play'}
-                        </button>
-                        <button type="button" className="ghost-button" onClick={() => handleRemoveSong(song.id)}>
-                          Delete
+                        <span className="song-duration">{formatDuration(song.duration)}</span>
+                        <button
+                          type="button"
+                          className="song-delete"
+                          onClick={() => handleRemoveSong(song.id)}
+                          aria-label={`Eliminar ${song.title}`}
+                          title="Eliminar"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12M9 7V4h6v3m-7 0 1 12h8l1-12" /></svg>
                         </button>
                       </div>
                     </div>
@@ -673,9 +700,16 @@ function App() {
 
         <aside className="secondary-column">
           <div className="panel player-panel">
-            <p className="player-label">Now Playing</p>
-            <h2>{currentSong?.title ?? 'No song selected'}</h2>
-            <p className="artist-name">{currentSong?.artist ?? 'Unknown Artist'}</p>
+            <div className="player-art" aria-hidden="true">
+              {currentSong?.coverUrl ? (
+                <img src={currentSong.coverUrl} alt="" />
+              ) : (
+                <span>{currentSong?.title?.charAt(0).toUpperCase() || 'C'}</span>
+              )}
+            </div>
+            <p className="player-label">Reproduciendo ahora</p>
+            <h2>{currentSong?.title ?? 'No hay canción seleccionada'}</h2>
+            <p className="artist-name">{currentSong?.artist ?? 'Artista desconocido'}</p>
 
             <div className="player-controls">
               <button
@@ -761,37 +795,54 @@ function App() {
           </div>
 
           <div className="panel stats-panel">
-            <h3>Statistics</h3>
+            <h3>Estadísticas</h3>
             <ul className="stats-list">
               <li>
-                <span>SONGS</span>
+                <span>CANCIONES</span>
                 <strong>{songs.length}</strong>
               </li>
               <li>
-                <span>LIST SIZE</span>
+                <span>TAMAÑO</span>
                 <strong>{list.getSize()}</strong>
               </li>
               <li>
-                <span>CURRENT POSITION</span>
+                <span>POSICIÓN</span>
                 <strong>{currentPosition >= 0 ? currentPosition + 1 : 'N/A'}</strong>
               </li>
               <li>
-                <span>HEAD</span>
-                <strong>{firstSong?.title ?? 'None'}</strong>
+                <span>INICIO</span>
+                <strong>{firstSong?.title ?? 'Ninguna'}</strong>
               </li>
               <li>
-                <span>TAIL</span>
-                <strong>{lastSong?.title ?? 'None'}</strong>
+                <span>FINAL</span>
+                <strong>{lastSong?.title ?? 'Ninguna'}</strong>
               </li>
               <li>
-                <span>CURRENT</span>
-                <strong>{currentSong?.title ?? 'None'}</strong>
+                <span>ACTUAL</span>
+                <strong>{currentSong?.title ?? 'Ninguna'}</strong>
               </li>
             </ul>
           </div>
         </aside>
       </main>
 
+      {currentSong ? (
+        <div className="mini-player" role="region" aria-label="Reproductor compacto">
+          <div className="mini-player-cover" aria-hidden="true">
+            {currentSong.coverUrl ? <img src={currentSong.coverUrl} alt="" /> : <span>{currentSong.title.charAt(0).toUpperCase()}</span>}
+          </div>
+          <div className="mini-player-meta">
+            <strong>{currentSong.title}</strong>
+            <span>{currentSong.artist}</span>
+          </div>
+          <button type="button" className="mini-player-button" onClick={() => void handlePlayPause()} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
+            <PlayerIcon name={isPlaying ? 'pause' : 'play'} />
+          </button>
+          <div className="mini-player-progress" aria-hidden="true">
+            <span style={{ width: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%` }} />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
